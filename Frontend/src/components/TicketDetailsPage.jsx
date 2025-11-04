@@ -4,6 +4,7 @@ import ConcertTicketList from './ConcertTicketList';
 import SportsTicketList from './SportsTicketList';
 import TheaterTicketList from './TheaterTicketList';
 import FestivalsTicketList from './FestivalsTicketList';
+import { API_BASE_URL } from '../config/api';
 
 const TicketDetailsPage = () => {
   const { sectorId } = useParams();

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 import './WorkersDashboard.css';
 
 const WorkersDashboard = () => {
@@ -25,7 +26,7 @@ const WorkersDashboard = () => {
         return;
       }
       
-      const response = await axios.get('http://localhost:5003/api/orders/worker', {
+      const response = await axios.get(`${API_BASE_URL}/api/orders/worker`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 import { FaStar, FaUser, FaCalendarAlt, FaClock, FaThumbsUp, FaExclamationTriangle } from 'react-icons/fa';
 import './WorkerReviews.css';
 
@@ -12,6 +13,7 @@ const WorkerReviews = () => {
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('all'); // Filter options: all, highRated, recent
   const [debugInfo, setDebugInfo] = useState(null); // For debugging
+  const [lastUpdated, setLastUpdated] = useState(null); // Track last update time
 
   // Log component mounting
   useEffect(() => {
@@ -33,7 +35,7 @@ const WorkerReviews = () => {
       console.log("Fetching reviews from server - " + new Date().toLocaleTimeString());
       
       // Use the general endpoint to get all reviews to ensure we're fetching data
-      const response = await axios.get('http://localhost:5003/api/reviews', { 
+      const response = await axios.get(`${API_BASE_URL}/api/reviews?t=${Date.now()}`, { 
         timeout: 10000,
         headers: {
           'Cache-Control': 'no-cache',
@@ -109,20 +111,11 @@ const WorkerReviews = () => {
           fullResponse: response.data
         }));
         
-        // Try to diagnose the issue
-        try {
-          const diagnosisResponse = await axios.get('http://localhost:5003/api/reviews/diagnosis');
-          console.log("Diagnosis response:", diagnosisResponse.data);
-          setDebugInfo(prev => ({
-            ...prev,
-            diagnosis: diagnosisResponse.data
-          }));
-        } catch (diagErr) {
-          console.error("Error getting diagnosis:", diagErr);
-        }
+        console.log('No reviews found, but continuing...');
       }
       
       setReviews(reviewsData);
+      setLastUpdated(new Date());
       setLoading(false);
     } catch (err) {
       console.error('Error fetching reviews:', err);
@@ -166,25 +159,33 @@ const WorkerReviews = () => {
         }));
       }
       
-      // Try to connect to server directly to see if it's running
-      try {
-        console.log("Attempting to verify server status...");
-        await axios.get('http://localhost:5003/api/reviews/diagnosis');
-        errorMessage += " Server is running but there was an error with the reviews request.";
-      } catch (serverErr) {
-        if (!serverErr.response) {
-          errorMessage += " Server appears to be offline or not responding.";
-        }
-      }
+      // Server status check removed for MongoDB version
       
       setError(errorMessage);
       setLoading(false);
     }
   };
 
-  // Initial fetch on component mount
+  // Initial fetch on component mount and when navigated from form
   useEffect(() => {
     fetchReviews();
+    
+    // Check if we came from form submission
+    if (location.state?.refreshNeeded) {
+      console.log('🎆 New review submitted! Fetching latest data...');
+      // Clear the state to prevent repeated refreshes
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
+
+  // Auto-refresh every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      console.log('🔄 Auto-refreshing reviews...');
+      fetchReviews();
+    }, 10000); // Refresh every 10 seconds
+
+    return () => clearInterval(interval); // Cleanup on unmount
   }, []);
 
   // Function to format date
@@ -241,10 +242,12 @@ const WorkerReviews = () => {
         );
       case 'recent':
         return [...validReviews].sort((a, b) => 
-          new Date(b.created_at || 0) - new Date(a.created_at || 0)
+          new Date(b.createdAt || b.created_at || 0) - new Date(a.createdAt || a.created_at || 0)
         );
       default:
-        return validReviews;
+        return [...validReviews].sort((a, b) => 
+          new Date(b.createdAt || b.created_at || 0) - new Date(a.createdAt || a.created_at || 0)
+        );
     }
   };
 
@@ -258,6 +261,10 @@ const WorkerReviews = () => {
     acc[workerName].push(review);
     return acc;
   }, {});
+
+  // If no worker grouping possible, show all reviews under "All Reviews"
+  const hasWorkerNames = filteredReviews().some(review => review.worker_name);
+  const displayReviews = hasWorkerNames ? reviewsByWorker : { 'All Reviews': filteredReviews() };
 
   return (
     <div className="worker-reviews-container">
@@ -276,7 +283,7 @@ const WorkerReviews = () => {
             Please make sure the backend server is running on port 5003.
             <button 
               className="check-server-button" 
-              onClick={() => window.open('http://localhost:5003/health', '_blank')}
+              onClick={() => window.open('https://local-connect-e-commerce-r4i5.onrender.com/health', '_blank')}
             >
               Check Server
             </button>
@@ -301,8 +308,13 @@ const WorkerReviews = () => {
           onClick={fetchReviews}
           disabled={loading}
         >
-          {loading ? 'Loading...' : 'Refresh Reviews'}
+          {loading ? 'Loading...' : '🔄 Refresh Now'}
         </button>
+        {lastUpdated && (
+          <span className="last-updated">
+            Last updated: {lastUpdated.toLocaleTimeString()}
+          </span>
+        )}
       </div>
 
       {loading ? (
@@ -347,8 +359,8 @@ const WorkerReviews = () => {
         </div>
       ) : (
         <div className="reviews-grid">
-          {Object.keys(reviewsByWorker).length > 0 ? (
-            Object.entries(reviewsByWorker).map(([workerName, workerReviews]) => (
+          {Object.keys(displayReviews).length > 0 ? (
+            Object.entries(displayReviews).map(([workerName, workerReviews]) => (
               <div className="worker-card" key={workerName}>
                 <div className="worker-card-header">
                   <h2>{workerName}</h2>
@@ -374,34 +386,44 @@ const WorkerReviews = () => {
                       <div className="review-header">
                         <div className="review-user">
                           <FaUser className="user-icon" />
-                          <span>{review.name || 'Anonymous'}</span>
+                          <span>{review.name || review.reviewer_name || 'Anonymous'}</span>
                         </div>
                         <div className="review-date">
                           <FaCalendarAlt className="calendar-icon" />
-                          <span>{formatDate(review.created_at)}</span>
+                          <span>{formatDate(review.createdAt || review.created_at)}</span>
                           <FaClock className="clock-icon" />
-                          <span>{formatTime(review.created_at)}</span>
+                          <span>{formatTime(review.createdAt || review.created_at)}</span>
                         </div>
                       </div>
                       
-                      <h3 className="review-title">{review.product_name || 'Service Review'}</h3>
+                      <h3 className="review-title">{review.product_name || review.worker_category || 'Service Review'}</h3>
                       
                       <div className="review-ratings">
                         <div className="rating-item">
-                          <span>Quality:</span>
-                          {renderStars(review.quality_of_work)}
+                          <span>Overall:</span>
+                          {renderStars(review.overall_satisfaction)}
                         </div>
-                        <div className="rating-item">
-                          <span>Timeliness:</span>
-                          {renderStars(review.timeliness)}
-                        </div>
-                        <div className="rating-item">
-                          <span>Communication:</span>
-                          {renderStars(review.communication_skills)}
-                        </div>
+                        {review.quality_of_work && (
+                          <div className="rating-item">
+                            <span>Quality:</span>
+                            {renderStars(review.quality_of_work)}
+                          </div>
+                        )}
+                        {review.timeliness && (
+                          <div className="rating-item">
+                            <span>Timeliness:</span>
+                            {renderStars(review.timeliness)}
+                          </div>
+                        )}
+                        {review.communication_skills && (
+                          <div className="rating-item">
+                            <span>Communication:</span>
+                            {renderStars(review.communication_skills)}
+                          </div>
+                        )}
                       </div>
                       
-                      <p className="review-text">{review.written_review}</p>
+                      <p className="review-text">{review.written_review || 'No review text provided'}</p>
                       
                       {(review.would_recommend === 1 || review.would_recommend === true) && (
                         <div className="recommend-badge">
@@ -410,64 +432,25 @@ const WorkerReviews = () => {
                         </div>
                       )}
                       
-                      {review.reviewImages && review.reviewImages.length > 0 && (
+                      {review.images && review.images.length > 0 && (
                         <div className="review-images">
-                          {review.reviewImages.map((image, index) => {
-                            // Improved image path handling with better fallbacks
-                            let imagePath;
-                            
-                            // Case 1: Direct path property starting with /uploads
-                            if (image.path && typeof image.path === 'string' && image.path.startsWith('/uploads')) {
-                              imagePath = `http://localhost:5003${image.path}`;
-                            }
-                            // Case 2: Direct file_path property starting with /uploads
-                            else if (image.file_path && typeof image.file_path === 'string' && image.file_path.startsWith('/uploads')) {
-                              imagePath = `http://localhost:5003${image.file_path}`;
-                            }
-                            // Case 3: Direct filename property
-                            else if (image.filename && typeof image.filename === 'string') {
-                              imagePath = `http://localhost:5003/uploads/reviews/${image.filename}`;
-                            }
-                            // Case 4: Extract filename from path or file_path
-                            else {
-                              const pathToUse = (image.path || image.file_path || '').toString();
-                              // Extract just the filename from the path
-                              const filename = pathToUse.split(/[\\/]/).pop();
-                              // Construct a proper URL to the image
-                              imagePath = filename ? `http://localhost:5003/uploads/reviews/${filename}` : '';
-                            }
-                            
-                            // Case 5: If image is just a string (direct filename or path)
-                            if (!imagePath && typeof image === 'string') {
-                              if (image.startsWith('/uploads')) {
-                                imagePath = `http://localhost:5003${image}`;
-                              } else if (image.includes('/')) {
-                                const filename = image.split('/').pop();
-                                imagePath = `http://localhost:5003/uploads/reviews/${filename}`;
-                              } else {
-                                imagePath = `http://localhost:5003/uploads/reviews/${image}`;
-                              }
-                            }
-                            
-                            // Fallback if we still don't have a path
-                            if (!imagePath) {
-                              console.error('Could not determine image path:', image);
-                              return null;
-                            }
-                            
-                            // Log the image path for debugging
-                            console.log(`Rendering image with path: ${imagePath}`);
+                          {review.images.map((imagePath, index) => {
+                            // Handle image path - it's already a string path
+                            const fullImagePath = imagePath.startsWith('/uploads') 
+                              ? `${API_BASE_URL}${imagePath}` 
+                              : imagePath;
                             
                             return (
                               <img 
                                 key={index} 
-                                src={imagePath} 
+                                src={fullImagePath} 
                                 alt={`Review ${index + 1}`}
                                 onError={(e) => {
-                                  console.error(`Error loading image: ${imagePath}`);
+                                  console.error(`Error loading image: ${fullImagePath}`);
                                   e.target.src = 'https://via.placeholder.com/100x100?text=Image+Not+Found';
                                 }}
                                 className="review-image"
+                                style={{ width: '100px', height: '100px', objectFit: 'cover', margin: '5px' }}
                               />
                             );
                           })}

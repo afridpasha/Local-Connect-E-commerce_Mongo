@@ -1,6 +1,7 @@
 // src/components/WorkerForm.jsx
 import React, { useState } from "react";
 import axios from "axios";
+import { API_BASE_URL } from '../config/api';
 import "./WorkerForm.css";
 import { useNavigate } from "react-router-dom";
 
@@ -75,7 +76,7 @@ const WorkerForm = () => {
     }
 
     try {
-      await axios.post("http://localhost:5003/api/worker-form", data, {
+      await axios.post(`${API_BASE_URL}/api/worker-form`, data, {
         headers: {
           "Content-Type": "multipart/form-data",
         },

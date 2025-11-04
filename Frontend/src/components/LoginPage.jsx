@@ -2,6 +2,7 @@ import React, { useState, useContext, useEffect } from "react";
 import axios from "axios";
 import { useNavigate, useLocation } from "react-router-dom";
 import { AuthContext } from "../AuthContext";
+import { API_BASE_URL } from "../config/api";
 import "./LoginPage.css";
 import backgroundVideo from '../assets/background.mp4';
 
@@ -46,7 +47,7 @@ const LoginPage = () => {
   const handleSignupSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post("http://localhost:5003/api/auth/signup", {
+      const response = await axios.post(`${API_BASE_URL}/api/auth/signup`, {
         username: signupData.username,
         phone: signupData.phone,
         email: signupData.email,
@@ -64,7 +65,7 @@ const LoginPage = () => {
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post("http://localhost:5003/api/auth/login", {
+      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
         identifier: loginData.identifier,
         password: loginData.password,
       });

@@ -2,6 +2,7 @@ import React, { useState, useContext, useEffect, useRef } from "react";
 import axios from "axios";
 import { useNavigate, useLocation } from "react-router-dom";
 import { AuthContext } from "../AuthContext";
+import { API_BASE_URL } from '../config/api';
 import "./WorkerLogin.css";
 import backgroundVideo from '../assets/background.mp4';
 
@@ -155,7 +156,7 @@ const WorkerLogin = () => {
   const handleSignupSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axios.post("http://localhost:5003/api/worker-auth/signup", signupData);
+      await axios.post(`${API_BASE_URL}/api/worker-auth/signup`, signupData);
       alert("Sign up successful! Please complete your worker details.");
       navigate("/worker-form");
     } catch (error) {
@@ -166,7 +167,7 @@ const WorkerLogin = () => {
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     try {
-      const response = await axios.post("http://localhost:5003/api/worker-auth/login", loginData);
+      const response = await axios.post(`${API_BASE_URL}/api/worker-auth/login`, loginData);
       const { token, user } = response.data;
       
       // Store worker token separately

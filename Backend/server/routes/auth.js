@@ -103,4 +103,36 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// Get current user profile
+router.get("/current", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    console.log('Auth header:', authHeader);
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: "No valid token provided" });
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+    
+    res.json({
+      name: user.username,
+      email: user.email,
+      phone: user.phone
+    });
+  } catch (error) {
+    console.error("Get current user error:", error);
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: "Invalid token" });
+    }
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 module.exports = router;

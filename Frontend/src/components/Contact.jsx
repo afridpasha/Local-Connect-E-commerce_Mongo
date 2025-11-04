@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import axios from "axios";
+import { API_BASE_URL } from '../config/api';
 import "./Contact.css";
 
 const Contact = () => {
@@ -32,7 +33,7 @@ const Contact = () => {
 
     try {
       const response = await axios.post(
-        "http://localhost:5003/api/email/send",
+        `${API_BASE_URL}/api/email/send`,
         formData
       );
 

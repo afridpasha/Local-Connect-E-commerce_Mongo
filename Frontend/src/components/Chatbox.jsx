@@ -23,6 +23,9 @@ const Chatbox = () => {
   const recognitionRef = useRef(null);
   const streamRef = useRef(null);
   const transcriptRef = useRef("");
+  const restartTimeoutRef = useRef(null);
+  const isSpeakingRef = useRef(false);
+  const lastResultTimeRef = useRef(0);
 
   const toggleChatbot = () => {
     setShowChat(!showChat);
@@ -37,6 +40,28 @@ const Chatbox = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Cleanup effect to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      console.log("🧹 Cleaning up Chatbox component...");
+      if (isRecordingRef.current) {
+        stopRecording();
+      }
+      if (recognitionRef.current) {
+        stopSpeechRecognition();
+      }
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current);
+      }
+      if (volumeAnimationRef.current) {
+        cancelAnimationFrame(volumeAnimationRef.current);
+      }
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
+      }
+    };
+  }, []);
 
   // Test speech recognition support on component mount
   useEffect(() => {
@@ -55,6 +80,12 @@ const Chatbox = () => {
         console.log("✅ getUserMedia supported");
       } else {
         console.log("❌ getUserMedia not supported");
+      }
+      
+      if (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+        console.log("✅ Secure context available for speech recognition");
+      } else {
+        console.log("❌ Speech recognition requires HTTPS or localhost");
       }
       
       console.log("🌐 User Agent:", navigator.userAgent);
@@ -134,7 +165,8 @@ const Chatbox = () => {
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          sampleRate: 48000
         }
       });
       
@@ -155,14 +187,14 @@ const Chatbox = () => {
       setIsRecording(true);
       isRecordingRef.current = true;
       transcriptRef.current = "";
+      isSpeakingRef.current = false;
+      lastResultTimeRef.current = 0;
       
-      // Start volume meter first
+      // Start volume meter
       startVolumeMeter(stream);
       
-      // Then start speech recognition
-      setTimeout(() => {
-        startSpeechRecognition();
-      }, 500);
+      // Start speech recognition
+      startSpeechRecognition();
       
       console.log("🎤 Recording started successfully");
       
@@ -180,19 +212,44 @@ const Chatbox = () => {
   };
 
   const stopRecording = () => {
+    console.log("🛑 Stopping recording...");
     setIsRecording(false);
     isRecordingRef.current = false;
     
+    // Clear restart timeout
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+    }
+    
+    // Stop speech recognition
     stopSpeechRecognition();
+    
+    // Stop volume meter
     stopVolumeMeter();
     
+    // Stop media recorder
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (err) {
+        console.error("Error stopping media recorder:", err);
+      }
     }
+    
+    // Stop all tracks
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(track => {
+        try {
+          track.stop();
+        } catch (err) {
+          console.error("Error stopping track:", err);
+        }
+      });
       streamRef.current = null;
     }
+    
+    console.log("✅ Recording stopped successfully");
   };
 
   const toggleRecording = async () => {
@@ -211,112 +268,172 @@ const Chatbox = () => {
       return;
     }
     
+    // Stop any existing recognition
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch (e) {
+        console.log("Previous recognition cleanup");
+      }
+      recognitionRef.current = null;
+    }
+    
+    // Clear any pending restart
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+    }
+    
     try {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       const recognition = new SpeechRecognition();
       
-      // Configure recognition settings
-      recognition.continuous = true;
+      // CRITICAL: Use non-continuous mode for better reliability
+      recognition.continuous = false;  // Changed from true
       recognition.interimResults = true;
       recognition.lang = "en-US";
       recognition.maxAlternatives = 1;
       
       recognition.onstart = () => {
-        console.log("🎤 Speech recognition started successfully");
+        console.log("🎤 Speech recognition started");
       };
       
       recognition.onresult = (event) => {
+        if (!isRecordingRef.current) return;
+        
+        lastResultTimeRef.current = Date.now();
         let interimTranscript = "";
         let finalTranscript = "";
         
         for (let i = event.resultIndex; i < event.results.length; i++) {
           const transcript = event.results[i][0].transcript;
+          const confidence = event.results[i][0].confidence;
           
           if (event.results[i].isFinal) {
             finalTranscript += transcript + " ";
             transcriptRef.current += transcript + " ";
+            console.log("✅ Final transcript:", transcript, "Confidence:", confidence);
           } else {
             interimTranscript += transcript;
+            console.log("📝 Interim:", transcript);
           }
         }
         
         const fullText = (transcriptRef.current + interimTranscript).trim();
         setInputValue(fullText);
-        
-        if (finalTranscript) {
-          console.log("📝 Final transcript:", finalTranscript);
-        }
-        if (interimTranscript) {
-          console.log("📝 Interim transcript:", interimTranscript);
-        }
       };
       
       recognition.onerror = (event) => {
-        console.error("❌ Speech recognition error:", event.error, event);
+        console.error("❌ Speech recognition error:", event.error);
+        
+        // Don't treat no-speech as a critical error
+        if (event.error === "no-speech") {
+          console.log("⚠️ No speech detected, will restart");
+          return;
+        }
         
         switch (event.error) {
           case "not-allowed":
-            alert("Microphone permission denied. Please allow microphone access and try again.");
+            alert("Microphone permission denied. Please allow microphone access.");
             stopRecording();
-            break;
-          case "no-speech":
-            console.log("No speech detected, continuing...");
             break;
           case "audio-capture":
-            alert("No microphone found. Please check your microphone connection.");
-            stopRecording();
+            console.log("⚠️ Audio capture issue, trying to continue...");
             break;
           case "network":
-            console.log("Network error, retrying...");
+            console.log("⚠️ Network error, will retry");
+            break;
+          case "aborted":
+            console.log("Recognition aborted");
+            break;
+          case "service-not-allowed":
+            alert("Speech recognition service not allowed.");
+            stopRecording();
             break;
           default:
-            console.log("Speech recognition error:", event.error);
+            console.log("Speech error:", event.error);
         }
       };
       
       recognition.onend = () => {
         console.log("🔄 Speech recognition ended");
         
-        // Only restart if we're still supposed to be recording
-        if (isRecordingRef.current && recognitionRef.current) {
-          console.log("🔄 Restarting recognition...");
-          setTimeout(() => {
-            if (isRecordingRef.current && recognitionRef.current) {
-              try {
-                recognitionRef.current.start();
-              } catch (err) {
-                console.error("❌ Error restarting recognition:", err);
-                // Try to reinitialize if restart fails
-                if (isRecordingRef.current) {
-                  startSpeechRecognition();
-                }
-              }
+        // Only restart if still recording
+        if (isRecordingRef.current) {
+          // Wait a bit before restarting to allow processing
+          const timeSinceLastResult = Date.now() - lastResultTimeRef.current;
+          const delay = timeSinceLastResult < 2000 ? 500 : 100;
+          
+          console.log(`🔄 Restarting in ${delay}ms...`);
+          restartTimeoutRef.current = setTimeout(() => {
+            if (isRecordingRef.current) {
+              startSpeechRecognition();
             }
-          }, 100);
-        } else {
-          console.log("⏹️ Not restarting - recording stopped");
+          }, delay);
         }
       };
       
-      // Start recognition
-      recognition.start();
+      recognition.onspeechstart = () => {
+        console.log("🗣️ Speech detected!");
+        isSpeakingRef.current = true;
+      };
+      
+      recognition.onspeechend = () => {
+        console.log("🤫 Speech ended");
+        isSpeakingRef.current = false;
+      };
+      
+      recognition.onaudiostart = () => {
+        console.log("🎵 Audio capturing started");
+      };
+      
+      recognition.onaudioend = () => {
+        console.log("🔇 Audio capturing ended");
+      };
+      
+      recognition.onsoundstart = () => {
+        console.log("🔊 Sound detected");
+      };
+      
+      recognition.onsoundend = () => {
+        console.log("🔕 Sound ended");
+      };
+      
+      // Store and start recognition
       recognitionRef.current = recognition;
-      console.log("✅ Speech recognition initialized and started");
+      recognition.start();
+      console.log("✅ Speech recognition initialized");
       
     } catch (err) {
       console.error("❌ Error initializing speech recognition:", err);
-      alert("Could not start voice recognition. Please check your browser settings.");
-      stopRecording();
+      alert("Could not start voice recognition: " + err.message);
     }
   };
 
   const stopSpeechRecognition = () => {
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current);
+      restartTimeoutRef.current = null;
+    }
+    
     if (recognitionRef.current) {
       try {
         const recognition = recognitionRef.current;
         recognitionRef.current = null;
+        
+        // Remove all event handlers
+        recognition.onstart = null;
         recognition.onend = null;
-        recognition.stop();
+        recognition.onerror = null;
+        recognition.onresult = null;
+        recognition.onspeechstart = null;
+        recognition.onspeechend = null;
+        recognition.onaudiostart = null;
+        recognition.onaudioend = null;
+        recognition.onsoundstart = null;
+        recognition.onsoundend = null;
+        
+        recognition.abort();
         console.log("🛑 Speech recognition stopped");
       } catch (err) {
         console.error("Error stopping recognition:", err);
@@ -358,11 +475,11 @@ const Chatbox = () => {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Calculate average volume for overall visualization
+    // Calculate average volume
     const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
     
     // Draw frequency bars
-    const barCount = Math.min(32, dataArray.length); // Limit bars for better visibility
+    const barCount = Math.min(32, dataArray.length);
     const barWidth = (canvas.width - (barCount - 1)) / barCount;
     
     for (let i = 0; i < barCount; i++) {
@@ -370,13 +487,11 @@ const Chatbox = () => {
       const barHeight = Math.max(2, (dataArray[dataIndex] / 255) * canvas.height * 0.8);
       const x = i * (barWidth + 1);
       
-      // Create color based on frequency and volume
       const intensity = dataArray[dataIndex] / 255;
       const red = Math.min(255, 100 + intensity * 155);
       const green = Math.min(255, 200 - intensity * 100);
       const blue = Math.min(255, 50 + intensity * 50);
       
-      // Create gradient for each bar
       const barGradient = ctx.createLinearGradient(0, canvas.height - barHeight, 0, canvas.height);
       barGradient.addColorStop(0, `rgba(${red}, ${green}, ${blue}, 0.8)`);
       barGradient.addColorStop(1, `rgba(${red}, ${green}, ${blue}, 1)`);
@@ -384,7 +499,6 @@ const Chatbox = () => {
       ctx.fillStyle = barGradient;
       ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
       
-      // Add highlight on top
       ctx.fillStyle = `rgba(255, 255, 255, ${intensity * 0.3})`;
       ctx.fillRect(x, canvas.height - barHeight, barWidth, Math.max(1, barHeight * 0.1));
     }
@@ -459,13 +573,15 @@ const Chatbox = () => {
                     width: '12px', 
                     height: '12px', 
                     borderRadius: '50%', 
-                    background: '#ff4444',
+                    background: isSpeakingRef.current ? '#4ade80' : '#ff4444',
                     animation: 'blink 1s infinite'
                   }}></div>
-                  <span style={{ fontSize: '13px', color: '#333', fontWeight: '600' }}>🎤 Listening...</span>
+                  <span style={{ fontSize: '13px', color: '#333', fontWeight: '600' }}>
+                    {isSpeakingRef.current ? '🗣️ Speaking...' : '🎤 Listening...'}
+                  </span>
                 </div>
                 <div style={{ fontSize: '11px', color: '#666' }}>
-                  {recognitionRef.current ? '✅ Recognition Active' : '❌ Recognition Inactive'}
+                  {recognitionRef.current ? '✅ Ready' : '⏳ Starting...'}
                 </div>
               </div>
               <canvas 
@@ -484,7 +600,7 @@ const Chatbox = () => {
                 marginTop: '5px',
                 textAlign: 'center'
               }}>
-                Speak clearly into your microphone
+                Speak clearly and pause briefly between sentences
               </div>
             </div>
           )}
@@ -543,7 +659,7 @@ const Chatbox = () => {
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder={isRecording ? "🎤 Listening... Speak now" : "Type your message or click mic to speak..."}
+              placeholder={isRecording ? "🎤 Speak now..." : "Type your message or click mic to speak..."}
               onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
               style={{
                 borderColor: isRecording ? '#ff6b35' : '#e2e8f0',

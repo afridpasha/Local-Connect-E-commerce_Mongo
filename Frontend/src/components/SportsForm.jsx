@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import './TicketForm.css';
+import { API_BASE_URL } from '../config/api';
 
 const SportsForm = () => {
   const navigate = useNavigate();
@@ -115,7 +116,7 @@ const SportsForm = () => {
     });
     
     try {
-      const response = await axios.post('http://localhost:5003/api/tickets/sports', data, {
+      const response = await axios.post(`${API_BASE_URL}/api/tickets/sports`, data, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },

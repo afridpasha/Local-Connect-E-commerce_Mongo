@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
+import { API_BASE_URL } from '../config/api';
 import './ReviewForm.css';
 import { FaCheckCircle, FaStar, FaUserCircle } from 'react-icons/fa';
 
@@ -80,36 +81,22 @@ const ReviewForm = () => {
   const [reviewImages, setReviewImages] = useState([]);
   const [additionalImages, setAdditionalImages] = useState([]);
 
-  // Fetch current user from MongoDB
+  // Get current user from localStorage (simplified)
   useEffect(() => {
-    const fetchCurrentUser = async () => {
+    const storedUser = localStorage.getItem('currentUser');
+    if (storedUser) {
       try {
-        // Get token from localStorage
-        const token = localStorage.getItem('token');
-        
-        if (token) {
-          // Fetch user data
-          const response = await axios.get('http://localhost:5003/api/users/current', {
-            headers: {
-              Authorization: `Bearer ${token}`
-            }
-          });
-          
-          setCurrentUser(response.data);
-          
-          // Pre-fill form with user data
-          setFormData(prevData => ({
-            ...prevData,
-            name: response.data.name || "",
-            email: response.data.email || ""
-          }));
-        }
+        const user = JSON.parse(storedUser);
+        setCurrentUser(user);
+        setFormData(prevData => ({
+          ...prevData,
+          name: user.username || "",
+          email: user.email || ""
+        }));
       } catch (error) {
-        console.error('Error fetching current user:', error);
+        console.error('Error parsing stored user:', error);
       }
-    };
-
-    fetchCurrentUser();
+    }
   }, []);
 
   // Fetch workers from the database
@@ -117,10 +104,11 @@ const ReviewForm = () => {
     const fetchWorkers = async () => {
       setLoading(true);
       try {
-        const response = await axios.get('http://localhost:5003/api/worker-form/all');
-        setWorkers(response.data);
+        const response = await axios.get(`${API_BASE_URL}/api/worker-form/all`);
+        setWorkers(Array.isArray(response.data) ? response.data : []);
       } catch (error) {
         console.error('Error fetching workers:', error);
+        setWorkers([]); // Empty array if API fails
       } finally {
         setLoading(false);
       }
@@ -191,24 +179,43 @@ const ReviewForm = () => {
   };
 
   const validateForm = () => {
+    console.log('Validating form with data:', formData);
+    
     // Ensure worker name is selected
-    if (!formData.worker_name) {
+    if (!formData.worker_name || formData.worker_name.trim() === '') {
       setFormError("Please select a worker");
+      console.log('Validation failed: No worker selected');
       return false;
     }
     
     // Ensure description is filled
-    if (!formData.written_review.trim()) {
+    if (!formData.written_review || formData.written_review.trim() === '') {
       setFormError("Please provide a review description");
+      console.log('Validation failed: No review description');
       return false;
     }
     
     // Ensure at least one rating is provided
-    if (formData.overall_satisfaction === 0) {
+    if (!formData.overall_satisfaction || formData.overall_satisfaction === 0) {
       setFormError("Please provide an overall rating");
+      console.log('Validation failed: No overall rating');
       return false;
     }
     
+    // Ensure name and email are provided
+    if (!formData.name || formData.name.trim() === '') {
+      setFormError("Please provide your name");
+      console.log('Validation failed: No name');
+      return false;
+    }
+    
+    if (!formData.email || formData.email.trim() === '') {
+      setFormError("Please provide your email");
+      console.log('Validation failed: No email');
+      return false;
+    }
+    
+    console.log('Form validation passed!');
     setFormError(null);
     return true;
   };
@@ -217,12 +224,17 @@ const ReviewForm = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    console.log('Form submission started');
+    console.log('Current form data:', formData);
+    
     // Validate form before submission
     if (!validateForm()) {
+      console.log('Form validation failed, stopping submission');
       return;
     }
     
     setIsSubmitting(true);
+    console.log('Form validation passed, proceeding with submission...');
 
     try {
       // Create form data object for multipart/form-data
@@ -230,19 +242,19 @@ const ReviewForm = () => {
       
       // Map form data to match server expectations (snake_case)
       const serverFormData = {
-        name: formData.name,
-        email: formData.email,
+        name: formData.name || '',
+        email: formData.email || '',
         is_anonymous: formData.is_anonymous ? 1 : 0,
-        order_number: formData.order_number,
-        product_name: formData.product_name,
-        overall_satisfaction: formData.overall_satisfaction,
-        quality_of_work: formData.quality_of_work,
-        timeliness: formData.timeliness,
-        accuracy: formData.accuracy,
-        written_review: formData.written_review,
-        worker_name: formData.worker_name,
-        communication_skills: formData.communication_skills,
-        professionalism: formData.professionalism,
+        order_number: formData.order_number || 'N/A',
+        product_name: formData.product_name || 'N/A',
+        overall_satisfaction: formData.overall_satisfaction || 5,
+        quality_of_work: formData.quality_of_work || 5,
+        timeliness: formData.timeliness || 5,
+        accuracy: formData.accuracy || 5,
+        written_review: formData.written_review || '',
+        worker_name: formData.worker_name || '',
+        communication_skills: formData.communication_skills || 5,
+        professionalism: formData.professionalism || 5,
         would_recommend: formData.would_recommend ? 1 : 0,
         follow_up_needed: formData.follow_up_needed ? 1 : 0,
         has_issue: formData.has_issue ? 1 : 0,
@@ -252,15 +264,20 @@ const ReviewForm = () => {
         status: formData.status || 'pending'
       };
       
+      console.log('Current formData state:', formData);
+      console.log('Mapped serverFormData:', serverFormData);
+      
       // Add each field to FormData
       Object.entries(serverFormData).forEach(([key, value]) => {
         data.append(key, value);
+        console.log(`Adding field: ${key} = ${value}`);
       });
       
       // Append review images - Using the exact field name expected by the server
       if (reviewImages.length > 0) {
         for (const file of reviewImages) {
           data.append('reviewImages', file);
+          console.log(`Adding image: ${file.name}`);
         }
       }
       
@@ -272,21 +289,33 @@ const ReviewForm = () => {
       }
       
       console.log('Submitting review data:', serverFormData);
+      console.log('FormData entries:');
+      for (let pair of data.entries()) {
+        console.log(pair[0] + ': ' + (pair[1] instanceof File ? `File: ${pair[1].name}` : pair[1]));
+      }
       
-      // Send data to server
-      const response = await axios.post('http://localhost:5003/api/reviews', data, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      // Additional debug: Check if FormData has any entries
+      const formDataEntries = Array.from(data.entries());
+      console.log('Total FormData entries:', formDataEntries.length);
+      if (formDataEntries.length === 0) {
+        console.error('ERROR: FormData is empty!');
+        setFormError('Form data is empty. Please try again.');
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Send data to server - Don't set Content-Type header for FormData
+      console.log('Sending request to:', `${API_BASE_URL}/api/reviews`);
+      
+      const response = await axios.post(`${API_BASE_URL}/api/reviews`, data);
       
       console.log('Form submitted successfully:', response.data);
       setSubmissionStatus('success');
       
-      // Redirect after successful submission to WorkerSection
+      // Redirect after successful submission and trigger refresh
       setTimeout(() => {
-        navigate('/reviews');
-      }, 3000);
+        navigate('/reviews', { state: { refreshNeeded: true } });
+      }, 2000);
     } catch (error) {
       console.error('Submission error:', error);
       setSubmissionStatus('error');
@@ -367,15 +396,17 @@ const ReviewForm = () => {
                 <option value="">Select Worker</option>
                 {loading ? (
                   <option disabled>Loading workers...</option>
-                ) : (
+                ) : workers && Array.isArray(workers) && workers.length > 0 ? (
                   workers.map((worker) => (
                     <option key={worker._id} value={worker.fullName}>
-                      {worker.fullName} - {Object.entries(worker.workerTypes)
+                      {worker.fullName} - {Object.entries(worker.workerTypes || {})
                         .filter(([_, value]) => value)
                         .map(([key]) => key)
                         .join(', ')}
                     </option>
                   ))
+                ) : (
+                  <option disabled>No workers found. Please add workers first.</option>
                 )}
               </select>
             </div>

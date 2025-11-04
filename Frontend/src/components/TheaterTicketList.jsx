@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
 import './TicketList.css';
 import { CartContext } from './CartContext';
+import { API_BASE_URL } from '../config/api';
 
 const TheaterTicketList = () => {
   const [tickets, setTickets] = useState([]);
@@ -13,7 +14,7 @@ const TheaterTicketList = () => {
     const fetchTickets = async () => {
       try {
         setLoading(true);
-        const response = await axios.get('http://localhost:5003/api/tickets/theater');
+        const response = await axios.get(`${API_BASE_URL}/api/tickets/theater`);
         setTickets(response.data);
         setLoading(false);
       } catch (err) {

@@ -4,6 +4,7 @@ import { CartContext } from './CartContext';
 //import OrderPageSection from './OrderPageSection';
 import './Cart.css';
 import { loadStripe } from '@stripe/stripe-js';
+import { API_BASE_URL } from '../config/api';
 import axios from 'axios';
 import { FaShoppingCart, FaTrashAlt, FaMapMarkerAlt, FaPlus, FaMinus, FaUser, FaPhone, FaEnvelope } from 'react-icons/fa';
 
@@ -551,12 +552,12 @@ const Cart = () => {
       // Call backend server to create a Stripe checkout session
       console.log('Attempting to connect to payment server...');
       
-      const serverUrl = 'http://localhost:5003/api/create-checkout-session';
+      const serverUrl = `${API_BASE_URL}/api/create-checkout-session`;
       console.log('Sending request to:', serverUrl);
       
       // First ping the server to check if it's responsive
       try {
-        await axios.get('http://localhost:5003/', { timeout: 5000 });
+        await axios.get(`${API_BASE_URL}/`, { timeout: 5000 });
         console.log('Payment server is responsive');
       } catch (pingError) {
         console.warn('Could not ping payment server:', pingError);
@@ -564,7 +565,7 @@ const Cart = () => {
       }
       
       // First save the order to MongoDB
-      const orderResponse = await axios.post('http://localhost:5003/api/orders', orderData, {
+      const orderResponse = await axios.post(`${API_BASE_URL}/api/orders`, orderData, {
         headers: {
           'Content-Type': 'application/json'
         },
@@ -733,9 +734,9 @@ const Cart = () => {
       
       console.log('Events Payment - Order Data:', orderData);
       
-      const serverUrl = 'http://localhost:5003/api/create-checkout-session';
+      const serverUrl = `${API_BASE_URL}/api/create-checkout-session`;
       
-      const orderResponse = await axios.post('http://localhost:5003/api/orders', orderData, {
+      const orderResponse = await axios.post(`${API_BASE_URL}/api/orders`, orderData, {
         headers: { 'Content-Type': 'application/json' },
         withCredentials: true
       });

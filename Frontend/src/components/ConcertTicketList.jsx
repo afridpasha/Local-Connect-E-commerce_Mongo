@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import axios from 'axios';
 import './TicketList.css';
+import { API_BASE_URL } from '../config/api';
 import { CartContext } from './CartContext';
 
 const ConcertTicketList = () => {
@@ -13,7 +14,7 @@ const ConcertTicketList = () => {
     const fetchTickets = async () => {
       try {
         setLoading(true);
-        const response = await axios.get('http://localhost:5003/api/tickets/concert');
+        const response = await axios.get(`${API_BASE_URL}/api/tickets/concert`);
         setTickets(response.data);
         setLoading(false);
       } catch (err) {

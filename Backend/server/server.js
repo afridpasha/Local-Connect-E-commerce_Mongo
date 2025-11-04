@@ -22,7 +22,10 @@ app.use(cors({
     }
 
     // Allowed domains
-    const allowedDomains = ['https://your-production-domain.com', 'http://localhost:5173'];
+    const allowedDomains = [
+      'https://local-connect-e-commerce-1e6u.onrender.com',
+      'http://localhost:5173'
+    ];
     if (allowedDomains.indexOf(origin) !== -1) {
       return callback(null, true);
     }
@@ -36,11 +39,18 @@ app.use(cors({
 
 // Parse JSON for non-file routes (Multer handles multipart/form-data)
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Request logger middleware
 app.use((req, res, next) => {
   const startTime = new Date();
   console.log(`📥 ${req.method} ${req.originalUrl} - ${startTime.toISOString()}`);
+  
+  // Log request body for debugging (only for POST requests)
+  if (req.method === 'POST' && req.originalUrl.includes('/api/reviews')) {
+    console.log('📋 Request headers:', req.headers);
+    console.log('📋 Content-Type:', req.get('Content-Type'));
+  }
 
   // Log details after the response finishes
   res.on('finish', () => {
@@ -53,6 +63,9 @@ app.use((req, res, next) => {
 
 // Serve static files from the uploads folder
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// Serve review images specifically
+app.use("/uploads/reviews", express.static(path.join(__dirname, "uploads/reviews")));
 
 // Add a specific route for review images to ensure they're properly served
 app.get('/uploads/reviews/:filename', (req, res) => {
@@ -76,18 +89,22 @@ if (!fs.existsSync(uploadsDir)) {
   console.log('Created uploads directory');
 }
 
+// Initialize database connections
+const { userConnection, workerConnection, ticketConnection } = require("./db");
+
 // Import route modules
 const authRoutes = require("./routes/auth");
 const workerAuthRoutes = require("./routes/workerAuth");
 const workerFormRoutes = require("./routes/WorkerForm");
 const ticketRoutes = require("./routes/tickets");
-const reviewRoutes = require("./routes/reviews");
+const reviewRoutes = require("./routes/simple-reviews");
 const orderRoutes = require("./routes/orders");
 const stripeRoutes = require("./routes/stripe");
 
 // Use the routes with prefixed paths
 app.use("/api/auth", authRoutes);
 app.use("/api/worker-auth", workerAuthRoutes);
+app.use("/api/users", authRoutes);
 app.use("/api/worker-form", workerFormRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/reviews", reviewRoutes);
@@ -126,9 +143,28 @@ app.use((err, req, res, next) => {
 });
 
 // Start the server and listen on API_SERVER_PORT to avoid conflicts with the Stripe server
-const PORT = process.env.API_SERVER_PORT || 5003;
-app.listen(PORT, () => {
-  console.log(`✅ Server running on port ${PORT} - http://localhost:${PORT}`);
-  console.log(`🛠️  API Endpoints available at http://localhost:${PORT}/api`);
-  console.log(`🔍 Health check at http://localhost:${PORT}/health`);
+const PORT = process.env.PORT || process.env.API_SERVER_PORT || 5003;
+
+const server = app.listen(PORT, () => {
+  console.log(`✅ Server running on port ${PORT}`);
+  console.log(`🛠️  API Endpoints available at /api`);
+  console.log(`🔍 Health check at /health`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('🛑 SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('✅ Process terminated');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('✅ Process terminated');
+    process.exit(0);
+  });
 });
