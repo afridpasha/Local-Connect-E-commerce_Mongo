@@ -12,27 +12,7 @@ const app = express();
 //   - Allows 'https://your-production-domain.com' and 'http://localhost:5173'.
 // - Also explicitly limits the HTTP methods.
 app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (e.g., mobile apps, curl requests)
-    if (!origin) return callback(null, true);
-
-    // Allow all localhost origins regardless of port
-    if (origin.startsWith('http://localhost:')) {
-      return callback(null, true);
-    }
-
-    // Allowed domains
-    const allowedDomains = [
-      'https://local-connect-e-commerce-1e6u.onrender.com',
-      'http://localhost:5173'
-    ];
-    if (allowedDomains.indexOf(origin) !== -1) {
-      return callback(null, true);
-    }
-
-    // Not allowed by CORS
-    callback(new Error('Not allowed by CORS'));
-  },
+  origin: true, // Allow all origins
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   credentials: true
 }));
